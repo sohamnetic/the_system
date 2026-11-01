@@ -70,7 +70,9 @@ Object.assign(actions, {
   },
   'sign-out': async () => {
     await Store.flush();
-    await Store.sb.auth.signOut();
+    // The library keeps the session if the server call fails, so this device clears it either way.
+    try { await Store.sb.auth.signOut({ scope: 'local' }); } catch {}
+    try { localStorage.removeItem(Store.sb.auth.storageKey); } catch {}
     location.reload();
   },
 
