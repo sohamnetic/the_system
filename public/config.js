@@ -4,7 +4,7 @@
 window.SYSTEM_CONFIG = {
   supabaseUrl: 'https://ztbympbxoqjxhbgujyth.supabase.co',
   supabaseAnonKey: 'sb_publishable_MA4EF-El7kpKI59WG-QtZQ_5NaepfyX',
-  vapidPublicKey: '',
+  vapidPublicKey: 'BHiqT7P3fss_DMzdIavU2-Jpb9nX8Sk7S2CUVLXFbo3N1t313BxqNONedkRARGIb5Wji8NxDdxlbvWOfWPqTQSI',
   googleEnabled: false,
   emailEnabled: false, // Turn on after connecting a free email sender, for sign-in links.
   aiEnabled: false // Turn on after adding a free Gemini key. Sends proof to Google.
