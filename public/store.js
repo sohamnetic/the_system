@@ -1,9 +1,9 @@
-/* Storage, login, proof photos and AI all go through this object.
+/* Storage, login and AI all go through this object. Proof photos are never stored.
    With no Supabase settings in config.js the app runs in guest mode, saved in this browser only.
    When signed in, every save is copied to this device first, so a gym with bad signal loses nothing. */
 const Store = {
   mode: 'local', sb: null, id: null, user: null, cfg: {}, needsLogin: false,
-  assets: null, sample: null, readOnly: false,
+  sample: null, readOnly: false,
   dirty: new Map(), flushing: false, timer: null,
   downloads: {
     async save({ filename, data }) {
@@ -20,14 +20,6 @@ const Store = {
     const { data } = await this.sb.auth.getSession();
     if (!data.session) { this.needsLogin = true; return; }
     this.user = data.session.user; this.id = this.user.id; this.mode = 'cloud';
-    this.assets = {
-      upload: async (blob, opts) => {
-        const path = `${this.id}/${crypto.randomUUID()}.jpg`;
-        const { error } = await this.sb.storage.from('proofs').upload(path, blob, { contentType: opts?.type || 'image/jpeg' });
-        if (error) throw error;
-        return { id: path };
-      }
-    };
     if (this.cfg.aiEnabled) this.sample = { json: (prompt, opts) => askServer(prompt, opts) };
     window.addEventListener('online', () => this.retryPending());
     this.retryPending();

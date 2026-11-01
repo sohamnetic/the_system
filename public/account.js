@@ -1,8 +1,19 @@
 /* Login, notifications, installing, importing and startup. */
 let installEvent = null;
-window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; if (S && tab === 'quests') render(); });
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; if (S && tab === 'quests') render(); offerInstall(); });
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+/* Asks once per device on the first visit. The Quests tab keeps the option after that. */
+const INSTALL_ASKED = 'system.installAsked';
+function installAsked() { try { return !!localStorage.getItem(INSTALL_ASKED); } catch { return false; } }
+function offerInstall() {
+  if (isStandalone() || installAsked() || (!installEvent && !isIOS())) return;
+  if (!$('#modal').hidden) { setTimeout(offerInstall, 2000); return; }
+  try { localStorage.setItem(INSTALL_ASKED, '1'); } catch {}
+  const head = `<h2 class="win-title"><i>!</i>Notification</h2><p class="sys-line">[Would you like to add The System as an app on your home screen?]</p>`;
+  if (installEvent) openModal(`${head}<div class="two"><button class="btn primary" data-act="install-yes">Add to home screen</button><button class="btn quiet" data-act="install-no">Not now</button></div>`);
+  else openModal(`${head}<p class="sys-line">In Safari, tap Share, then Add to Home Screen.</p><button class="btn primary wide" data-act="install-no">Got it</button>`);
+}
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 
 /* ---------- Login ---------- */
@@ -68,8 +79,10 @@ Object.assign(actions, {
     if (!installEvent) return;
     installEvent.prompt();
     await installEvent.userChoice;
-    installEvent = null; render();
+    installEvent = null; if (S) render();
   },
+  'install-yes': async () => { closeModal(); await actions.install(); drainNotes(); },
+  'install-no': () => { closeModal(); drainNotes(); },
   'import-yes': async () => {
     const data = PF?.imported; if (!data) return;
     S = normalizeState(data.state);
@@ -177,6 +190,7 @@ async function hydrateProofs() {
 /* ---------- Startup ---------- */
 async function boot() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  offerInstall();
   try {
     await Store.init();
     if (Store.needsLogin) { renderLogin(); return; }

@@ -2,12 +2,14 @@
 
 A real-life leveling app you can install on a phone: proof-checked quests, workouts, gold and items, Special Quests, penalties and rank trials.
 
+Proof photos are never stored. Without AI checks (Part 7), the app only confirms that a new image was added, using a fingerprint that catches reused images. It does not look at what the image shows, and the quest counts as Submitted at 80% XP. With AI checks on, the image is sent to Google to be checked, and a passing check earns 100% XP.
+
 Everything here runs on free plans, and no step needs a payment card. Plans change, so check each service's current limits before relying on them.
 
 | Part | Free service | Main limit to watch |
 |---|---|---|
 | App hosting | Cloudflare Pages | Very generous for a static app |
-| Logins, data, photos, server code | Supabase | About 500 MB of data, 1 GB of photos, pauses after 7 days with no activity |
+| Logins, data, server code | Supabase | About 500 MB of data, pauses after 7 days with no activity |
 | Notifications | Browser push, sent by Supabase | No separate cost |
 | Staying awake | cron-job.org | Must keep running, or Supabase can pause |
 | Sign-in emails (optional) | Brevo | About 300 emails a day |
@@ -24,7 +26,7 @@ Then open http://localhost:8765. With no login set up, it runs in guest mode and
 
 ## Put it online
 
-Parts 1 to 3 give you a working app with logins. Parts 4 to 7 are optional. Part 4 is recommended, because it also cleans up old photos.
+Parts 1 to 3 give you a working app with logins. Parts 4 to 7 are optional.
 
 ### 1. Logins and saving (Supabase)
 
@@ -60,7 +62,7 @@ Free Supabase projects pause after 7 days with no activity, which would lock eve
 3. Under the job's advanced settings, add a header named `apikey` with your **anon public** key as its value.
 4. Run the job once and confirm it returns status 200.
 
-### 4. Notifications and photo cleanup (recommended)
+### 4. Notifications (recommended)
 
 1. Create the keys that identify your app:
 
@@ -106,7 +108,7 @@ $$);
 
 7. Publish the app again, then select **Turn on notifications** in the Quests tab.
 
-This job also deletes proof photos older than 60 days. Without it, photos are never deleted and can fill the free 1 GB. To change the period, edit `PHOTO_KEEP_DAYS` in `supabase/functions/send-reminders/index.ts`.
+This job also deletes any photos left over from before the app stopped storing them.
 
 ### 5. Google sign-in (optional, recommended for other people)
 
@@ -128,7 +130,7 @@ Without this, people who sign up with a password can't recover a forgotten passw
 
 ### 7. AI proof checks (optional)
 
-**Without this, the app still works fully.** Saved photos and write-ups count as On File at 80% XP, and the built-in planner drafts quests.
+**Without this, the app still works, but nothing looks at the proof.** New photos and write-ups count as Submitted at 80% XP, and the built-in planner drafts quests.
 
 Before you turn it on: on Google's free tier, what people send can be used to improve Google's products, and that includes proof photos. The app tells people this each time, but do not enable it if that isn't acceptable to you and your users.
 
@@ -145,13 +147,13 @@ npx supabase functions deploy ai
 
 3. Set `aiEnabled: true` in `public/config.js`, then publish again.
 
-Each person gets 10 AI calls a day. Change that with the `AI_DAILY_LIMIT` secret. When the free quota runs out, proof counts as On File until it resets, so nobody gets stuck.
+Each person gets 10 AI calls a day. Change that with the `AI_DAILY_LIMIT` secret. When the free quota runs out, proof counts as Submitted until it resets, so nobody gets stuck.
 
 ## Before you invite other people
 
 - **Free plan size:** expect the free limits to hold for a small group. Check your usage in the Supabase dashboard as people join. Supabase will not charge you on the free plan; it restricts the project when you go over.
 - **Hosting choice:** Cloudflare Pages is used here instead of Vercel, because sources report that Vercel's free plan is limited to personal, non-commercial use.
-- **Account deletion:** there is no delete-account button yet. To remove someone, delete them under **Authentication > Users**, which also removes their saved progress. Delete their folder in the `proofs` storage bucket as well.
+- **Account deletion:** there is no delete-account button yet. To remove someone, delete them under **Authentication > Users**, which also removes their saved progress.
 - **Bringing in old progress:** in the earlier claude.ai version, select **Export my data**. In this app, use the import field in the Quests tab. Proof photos do not carry over.
 
 ## Checks
@@ -167,8 +169,8 @@ This runs the real database rules in a local Postgres and confirms one person ca
 | Path | What it does |
 |---|---|
 | `public/app.js` | Quests, rewards, workouts and every screen |
-| `public/store.js` | Saving, offline sync, photos and AI requests |
+| `public/store.js` | Saving, offline sync and AI requests |
 | `public/account.js` | Login, notifications, install, import and startup |
 | `public/sw.js` | Offline support and showing notifications |
 | `supabase/migrations/` | Database tables and privacy rules |
-| `supabase/functions/` | Reminder sender, photo cleanup and optional AI checks |
+| `supabase/functions/` | Reminder sender and optional AI checks |
