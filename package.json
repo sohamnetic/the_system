@@ -1,0 +1,21 @@
+{
+  "name": "the-system",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A real-life leveling System: proof-checked quests, workouts, rewards and rank trials.",
+  "scripts": {
+    "dev": "node tools/dev-server.mjs",
+    "icons": "node tools/make-icons.mjs",
+    "vendor": "node tools/copy-vendor.mjs",
+    "test:rls": "node tests/rls.test.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.2.12",
+    "esbuild": "0.24.0",
+    "sharp": "0.33.5"
+  }
+}

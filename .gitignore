@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+supabase/.temp/
+.vercel/
+.wrangler/
+.claude/
+# Earlier single-page version, not used by the app.
+the-system.html
