@@ -5,7 +5,7 @@ Everything here runs on free plans, and no step needs a payment card. Parts 1 to
 ## 1. Logins and saving (Supabase)
 
 1. Create a free project at https://supabase.com.
-2. Open **SQL Editor**, paste all of `supabase/migrations/001_init.sql`, and select **Run**.
+2. Open **SQL Editor**, then paste and **Run** each file in `supabase/migrations/`, in order.
 3. Open **Project Settings > API** and copy the **Project URL** and the **anon public** key.
 4. Put them in `public/config.js` as `supabaseUrl` and `supabaseAnonKey`.
 5. Open **Authentication > Sign In / Providers > Email** and turn off **Confirm email**. Supabase's built-in email only reaches your own team, so other people could not confirm their accounts. Part 6 lets you turn this back on.

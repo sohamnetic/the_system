@@ -54,13 +54,16 @@ Deno.serve(async (req) => {
       update.last_morning_on = now.date;
       const special = offersSpecial(summary, now.date) ? " A Special Quest is also available today." : "";
       msg = { title: "QUEST INFO", body: `[Daily Quest has arrived.] Complete it before midnight.${special}`, tag: "morning", url: "/#today" };
-    } else if (p.last_evening_on !== now.date && isDue(now.minutes, p.evening)) {
-      update.last_evening_on = now.date;
+    } else {
       const left = known ? Number(summary?.left || 0) : null;
       const finished = known && (left === 0 || summary?.rest === true);
-      if (!finished) {
-        const what = left ? `${left} required quest${left === 1 ? "" : "s"} left.` : "Your required quests are not done.";
-        msg = { title: "WARNING", body: `${what} Finish before midnight or enter the Penalty Zone.`, tag: "evening", url: "/#today" };
+      const what = left ? `${left} required quest${left === 1 ? "" : "s"} left.` : "Your required quests are not done.";
+      if (p.last_evening_on !== now.date && isDue(now.minutes, p.evening)) {
+        update.last_evening_on = now.date;
+        if (!finished) msg = { title: "QUEST REMINDER", body: `${what} There is still time today.`, tag: "evening", url: "/#today" };
+      } else if (p.last_night_on !== now.date && isDue(now.minutes, p.night)) {
+        update.last_night_on = now.date;
+        if (!finished) msg = { title: "WARNING", body: `${what} Finish before midnight or enter the Penalty Zone.`, tag: "night", url: "/#today" };
       }
     }
     if (!Object.keys(update).length) continue;

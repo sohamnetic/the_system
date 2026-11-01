@@ -115,12 +115,16 @@ Object.assign(actions, {
       const sub = await reg.pushManager.getSubscription();
       if (sub) { await Store.sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); }
     } catch { /* The server drops dead subscriptions on its next send. */ }
-    await savePrefs(); render();
+    try { await savePrefs(); } catch { toast('[Reminders could not be turned off. Check your connection and try again.]', 5000); }
+    render();
   },
   'notify-save': async () => {
     S.notify.morning = $('#n-morning').value || '08:00';
-    S.notify.evening = $('#n-evening').value || '21:00';
-    saveState(); await savePrefs(); toast('[Reminder times saved.]');
+    S.notify.evening = $('#n-evening').value || '18:00';
+    S.notify.night = $('#n-night').value || '22:00';
+    saveState();
+    try { await savePrefs(); toast('[Reminder times saved.]'); }
+    catch { toast('[Reminder times could not be saved. Check your connection and try again.]', 5000); }
   }
 });
 function b64ToBytes(b64) {
@@ -134,10 +138,11 @@ function daySummary() {
 }
 async function savePrefs() {
   if (Store.mode !== 'cloud') return;
-  await Store.sb.from('notification_prefs').upsert({
-    user_id: Store.id, enabled: !!S.notify.on, morning: S.notify.morning, evening: S.notify.evening,
+  const { error } = await Store.sb.from('notification_prefs').upsert({
+    user_id: Store.id, enabled: !!S.notify.on, morning: S.notify.morning, evening: S.notify.evening, night: S.notify.night,
     tz: Intl.DateTimeFormat().resolvedOptions().timeZone, summary: daySummary()
   });
+  if (error) throw error;
 }
 /* Keeps the server's copy of "quests left today" fresh, so the evening warning stays quiet once you are done. */
 let lastSummary = '';
@@ -156,10 +161,10 @@ function accountWindows() {
   let push;
   if (Store.mode !== 'cloud' || !Store.cfg.vapidPublicKey) push = `<p class="small dim" style="text-align:center">Notifications turn on after login and reminders are set up.</p>`;
   else if (!pushSupported()) push = `<p class="small dim" style="text-align:center">${isIOS() ? 'On iPhone, add this app to your Home Screen first, then open it from there to turn on notifications.' : 'This browser does not support notifications.'}</p>`;
-  else if (n.on) push = `<div class="two"><label class="field">Morning quest reminder<input type="time" id="n-morning" value="${esc(n.morning)}"></label><label class="field">Evening warning<input type="time" id="n-evening" value="${esc(n.evening)}"></label></div>
-      <p class="small dim">The evening warning only arrives if required quests are still unfinished.</p>
+  else if (n.on) push = `<div class="two"><label class="field">Morning quest reminder<input type="time" id="n-morning" value="${esc(n.morning)}"></label><label class="field">Evening reminder<input type="time" id="n-evening" value="${esc(n.evening)}"></label><label class="field">Night warning<input type="time" id="n-night" value="${esc(n.night)}"></label></div>
+      <p class="small dim">At most three a day. The evening and night ones only arrive if required quests are still unfinished.</p>
       <div class="two"><button class="btn primary" data-act="notify-save">Save times</button><button class="btn quiet" data-act="notify-off">Turn off</button></div>`;
-  else push = `<p class="small dim" style="text-align:center">Get your Daily Quest each morning, a warning before midnight, and word of new Special Quests.</p><button class="btn primary" data-act="notify-on">Turn on notifications</button>`;
+  else push = `<p class="small dim" style="text-align:center">Get your Daily Quest each morning, with word of new Special Quests, then an evening reminder and a night warning if quests are unfinished.</p><button class="btn primary" data-act="notify-on">Turn on notifications</button>`;
   const install = isStandalone() ? '' : installEvent
     ? `<button class="btn" data-act="install">Install the app</button>`
     : isIOS() ? `<p class="small dim" style="text-align:center">To install on iPhone: tap Share in Safari, then Add to Home Screen.</p>` : '';

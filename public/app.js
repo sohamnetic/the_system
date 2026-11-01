@@ -197,7 +197,8 @@ function normalizeState(s) {
   s.counts ??= { quests: 0, verified: 0, specials: 0 };
   s.counts.workouts ??= 0; s.counts.prs ??= 0;
   s.session ??= null;
-  s.notify ??= { on: false, morning: '08:00', evening: '21:00' };
+  s.notify ??= { on: false, morning: '08:00', evening: '18:00', night: '22:00' };
+  if (!s.notify.night) { s.notify.night = '22:00'; if (s.notify.evening === '21:00') s.notify.evening = '18:00'; }
   s.fit ??= { goals: { steps: 8000, water: 8, sleep: 7, protein: 100 }, goalWeight: null, weeklyGoal: 3, prs: {}, last: {}, routines: [] };
   // The journal quest used to ask for a write-up in the app. Saved copies move to a screenshot.
   for (const q of s.quests || []) if (q.title === 'Write an honest journal entry' && q.proof?.type === 'text') q.proof = { ...JOURNAL_PROOF };
