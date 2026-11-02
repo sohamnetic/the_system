@@ -7,5 +7,6 @@ window.SYSTEM_CONFIG = {
   vapidPublicKey: 'BHiqT7P3fss_DMzdIavU2-Jpb9nX8Sk7S2CUVLXFbo3N1t313BxqNONedkRARGIb5Wji8NxDdxlbvWOfWPqTQSI',
   googleEnabled: false,
   emailEnabled: false, // Turn on after connecting a free email sender, for sign-in links.
-  aiEnabled: false // Turn on after adding a free Gemini key. Sends proof to Google.
+  aiEnabled: true, // Checks submitted photos and write-ups with Gemini. Sends proof to Google, and the app says so each time.
+  plannerAi: true // Lets people opt in to AI-written Daily Orders. Sends text only, never proof.
 };

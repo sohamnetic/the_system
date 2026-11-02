@@ -3,7 +3,7 @@
    When signed in, every save is copied to this device first, so a gym with bad signal loses nothing. */
 const Store = {
   mode: 'local', sb: null, id: null, user: null, cfg: {}, needsLogin: false,
-  sample: null, readOnly: false,
+  sample: null, planner: null, readOnly: false,
   dirty: new Map(), flushing: false, timer: null,
   downloads: {
     async save({ filename, data }) {
@@ -21,6 +21,8 @@ const Store = {
     if (!data.session) { this.needsLogin = true; return; }
     this.user = data.session.user; this.id = this.user.id; this.mode = 'cloud';
     if (this.cfg.aiEnabled) this.sample = { json: (prompt, opts) => askServer(prompt, opts) };
+    // Separate from proof checks: this one writes quests from text and can never carry a photo.
+    if (this.cfg.plannerAi) this.planner = { json: prompt => askServer(prompt) };
     window.addEventListener('online', () => this.retryPending());
     this.retryPending();
   },

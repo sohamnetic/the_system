@@ -4,6 +4,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-flash-latest";
+const FALLBACK_MODEL = Deno.env.get("GEMINI_FALLBACK_MODEL") || "gemini-flash-lite-latest";
+const MODEL_WAIT_MS = 20_000;
 const DAILY_LIMIT = Number(Deno.env.get("AI_DAILY_LIMIT") || 10);
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_PROMPT = 12_000;
@@ -37,6 +39,8 @@ Deno.serve(async (req) => {
   if (!prompt || prompt.length > MAX_PROMPT) return reply(400, { error: "The request is empty or too long." });
   const image = typeof input.image === "string" ? input.image : null;
   const mediaType = String(input.mediaType || "image/jpeg");
+  // Images only pass when proof checks are deliberately turned on, so quest writing can never send a photo.
+  if (image && Deno.env.get("AI_ALLOW_IMAGES") !== "true") return reply(400, { error: "Images are turned off." });
   if (image && (image.length > MAX_IMAGE_B64 || !IMAGE_TYPES.includes(mediaType))) return reply(400, { error: "That image cannot be used." });
 
   const { data: allowed, error: limitError } = await admin.rpc("bump_ai_usage", { uid: auth.user.id, max_calls: DAILY_LIMIT });
@@ -48,15 +52,22 @@ Deno.serve(async (req) => {
   parts.push({ text: prompt });
 
   try {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    const ask = (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      signal: AbortSignal.timeout(MODEL_WAIT_MS),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: "user", parts }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4000 },
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4000, thinkingConfig: { thinkingBudget: 0 } },
       }),
     });
+    // The free tier often answers "high demand" or stalls, so a smaller model gets the second try.
+    let res = await ask(MODEL).catch(() => null);
+    if (!res || res.status === 500 || res.status === 503) {
+      if (res) console.error("Gemini busy", res.status);
+      res = await ask(FALLBACK_MODEL);
+    }
     // A used-up free quota comes back as 429, which the app treats as "no AI right now".
     if (res.status === 429) return reply(429, { error: "The free AI quota is used up for now." });
     if (!res.ok) { console.error("Gemini error", res.status, await res.text()); return reply(502, { error: "The AI check failed." }); }

@@ -1,6 +1,6 @@
 /* Makes the app open offline and shows reminders. Pages come from the network first, so updates arrive right away. */
-const CACHE = 'the-system-v1';
-const SHELL = ['/', '/index.html', '/styles.css', '/config.js', '/store.js', '/app.js', '/account.js', '/vendor/supabase.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE = 'the-system-v2';
+const SHELL = ['/', '/index.html', '/styles.css', '/config.js', '/store.js', '/mind.js', '/app.js', '/account.js', '/vendor/supabase.js', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

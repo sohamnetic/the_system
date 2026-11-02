@@ -13,7 +13,7 @@ createServer(async (req, res) => {
     if (path === '/stub.html') {
       const html = (await readFile(join(root, 'public/index.html'), 'utf8'))
         .replace('<script src="/vendor/supabase.js"></script>', '<script src="/tests/supabase-stub.js"></script>')
-        .replace('<script src="/config.js"></script>', `<script>window.SYSTEM_CONFIG={supabaseUrl:'http://stub',supabaseAnonKey:'stub',vapidPublicKey:'',googleEnabled:true,aiEnabled:false};</script>`);
+        .replace('<script src="/config.js"></script>', `<script>window.SYSTEM_CONFIG={supabaseUrl:'http://stub',supabaseAnonKey:'stub',vapidPublicKey:'',googleEnabled:true,aiEnabled:false,plannerAi:true};</script>`);
       res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return;
     }
     const file = path.startsWith('/tests/') ? join(root, normalize(path)) : join(root, 'public', normalize(path === '/' ? '/index.html' : path));

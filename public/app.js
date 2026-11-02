@@ -200,6 +200,7 @@ function normalizeState(s) {
   s.notify ??= { on: false, morning: '08:00', evening: '18:00', night: '22:00' };
   if (!s.notify.night) { s.notify.night = '22:00'; if (s.notify.evening === '21:00') s.notify.evening = '18:00'; }
   s.fit ??= { goals: { steps: 8000, water: 8, sleep: 7, protein: 100 }, goalWeight: null, weeklyGoal: 3, prs: {}, last: {}, routines: [] };
+  s.mind = { goals: [], obstacles: '', minutes: 30, aiOk: null, aiOn: '', mode: 'steady', orders: [], ordersOn: '', swappedOn: '', swaps: { week: '', used: 0 }, spares: [], recent: [], lastReviewOn: '', adjust: null, adjustSeen: {}, ...s.mind };
   // The journal quest used to ask for a write-up in the app. Saved copies move to a screenshot.
   for (const q of s.quests || []) if (q.title === 'Write an honest journal entry' && q.proof?.type === 'text') q.proof = { ...JOURNAL_PROOF };
   return s;
@@ -267,8 +268,109 @@ function ensureSpecial() {
   }
   if (changed) saveState();
 }
+/* ---------- Daily Orders: quests the System assigns by itself. They stay out of S.quests, so missing one can never cost a streak. ---------- */
+const SWAPS_PER_WEEK = 2;
+const AI_WAIT_MS = 45000;
+const AI_TRIES_PER_DAY = 2;
+let thinking = false;
+const orderLibrary = () => ({ plans: PLANS, starters: STARTERS });
+const activeTitles = () => S.quests.filter(q => q.active && !q.doneOn).map(q => q.title);
+function buildOrder(q, a, mode) {
+  const statId = q.area?.id || q.statId || weakestStat()?.id;
+  const order = normQuest({ title: q.title, rank: q.rank, proof: q.proof, statId, id: 'directive-' + uid(), kind: 'daily' }, S.stats);
+  return Object.assign(order, { kind: 'directive', required: false, why: q.why || Mind.reasonFor({ ...q, statId }, a, mode, S.mind) });
+}
+function rememberOrders(orders, today) {
+  S.mind.recent = [...S.mind.recent, ...orders.map(o => ({ t: o.title, on: today }))].slice(-40);
+}
+function ensureOrders() {
+  const today = ymd(); const m = S.mind;
+  if (m.ordersOn !== today) {
+    if (S.timer?.key?.startsWith('directive-')) S.timer = null;
+    const a = Mind.analyze(S, peek, today);
+    const mode = Mind.chooseMode(a);
+    Object.assign(m, { ordersOn: today, mode, spares: [] });
+    m.orders = Mind.pickOrders(a, mode, m, m.recent, orderLibrary(), { taken: activeTitles() }).map(q => buildOrder(q, a, mode));
+    rememberOrders(m.orders, today);
+    m.adjust ||= Mind.proposeAdjustment(a, S.quests, m.adjustSeen);
+    if (Mind.weekday(today) === 0 && m.lastReviewOn !== today && S.createdOn <= addDays(today, -3)) {
+      const lines = Mind.weekReview(S, peek, today);
+      m.lastReviewOn = today;
+      if (lines) pendingNotes.push({ title: 'Weekly Review', lines });
+    }
+    saveState();
+  }
+  thinkWithAi();
+}
+const ordersTouched = () => {
+  const m = S.mind; const done = peek(m.ordersOn)?.c || {};
+  return m.swappedOn === m.ordersOn || m.orders.some(o => done[o.id] || S.timer?.key === o.id || PF?.q?.id === o.id);
+};
+/* Only runs after the person opts in. The rules' Orders are already on screen, so a slow or failed call changes nothing. */
+async function thinkWithAi() {
+  const today = ymd();
+  const tries = S.mind.aiTries?.on === today ? S.mind.aiTries.n : 0;
+  if (thinking || !Store.planner || S.mind.aiOk !== true || S.mind.aiOn === today || tries >= AI_TRIES_PER_DAY) return;
+  thinking = true;
+  S.mind.aiTries = { on: today, n: tries + 1 }; saveState();
+  try {
+    const a = Mind.analyze(S, peek, today);
+    const { mode, recent } = S.mind;
+    const avoid = [...activeTitles(), ...recent.map(r => r.t)];
+    const brief = Mind.aiBrief(S, a, mode, S.mind);
+    const list = await Promise.race([
+      Store.planner.json(Mind.aiPrompt(brief, today, avoid), { cache: false }),
+      new Promise((_, no) => setTimeout(() => no(new Error('timeout')), AI_WAIT_MS))
+    ]);
+    if (!S || S.mind.ordersOn !== today) return;
+    const m = S.mind;
+    m.aiOn = today;
+    const clean = Mind.cleanAi(list, S, mode, m, avoid);
+    if (!clean.length) return;
+    if (ordersTouched()) { m.spares = clean; saveState(); return; }
+    const count = Math.max(1, m.orders.length);
+    const chosen = clean.slice(0, count).reduce((keep, q) => (keep.spent + Mind.costOf(q) <= m.minutes ? { spent: keep.spent + Mind.costOf(q), list: [...keep.list, q] } : keep), { spent: 0, list: [] }).list;
+    if (!chosen.length) { m.spares = clean; saveState(); return; }
+    const replaced = new Set(m.orders.map(o => o.title));
+    m.recent = m.recent.filter(r => !(r.on === today && replaced.has(r.t)));
+    m.orders = chosen.map(q => buildOrder(q, a, mode));
+    m.spares = clean.filter(q => !chosen.includes(q));
+    rememberOrders(m.orders, today);
+    saveState();
+    if (tab === 'today') render();
+  } catch { /* The rules' Orders stay. */ }
+  finally { thinking = false; }
+}
+function swapsLeft() {
+  const s = S.mind.swaps;
+  return s.week === Mind.weekStart(ymd()) ? Math.max(0, SWAPS_PER_WEEK - s.used) : SWAPS_PER_WEEK;
+}
+function swapOrder(id) {
+  const today = ymd(); const m = S.mind;
+  const i = m.orders.findIndex(o => o.id === id);
+  if (i < 0 || peek(today)?.c?.[id] || S.timer?.key === id || !swapsLeft()) return;
+  const a = Mind.analyze(S, peek, today);
+  const taken = [...activeTitles(), ...m.orders.map(o => o.title)];
+  const others = new Set(taken.map(t => t.toLowerCase()));
+  const spare = m.spares.find(q => !others.has(q.title.toLowerCase()));
+  const next = spare || Mind.pickOrders(a, m.mode, { ...m, minutes: 240 }, m.recent, orderLibrary(), { taken, count: 1 })[0];
+  if (!next) { toast('[The System has no other quest for you today.]', 4000); return; }
+  m.spares = m.spares.filter(q => q !== spare);
+  m.orders[i] = buildOrder(next, a, m.mode);
+  rememberOrders([m.orders[i]], today);
+  const week = Mind.weekStart(today);
+  m.swaps = { week, used: (m.swaps.week === week ? m.swaps.used : 0) + 1 };
+  m.swappedOn = today;
+  saveState(); render(); toast(`[Orders changed. ${swapsLeft()} swap${swapsLeft() === 1 ? '' : 's'} left this week.]`);
+}
+function rememberGoal(goal) {
+  const clean = goal.replace(/\s+/g, ' ').trim().slice(0, 300);
+  const m = S.mind;
+  if (clean && !m.goals.includes(clean)) { m.goals = [...m.goals, clean].slice(-5); saveState(); }
+}
 function evaluate() {
   ensureSpecial();
+  ensureOrders();
   const today = ymd();
   if (S.lastEval >= today) return;
   let missed = 0, shielded = 0; const titles = new Set();
@@ -339,12 +441,15 @@ async function verify(q, { file, text, count }) {
   ].filter(Boolean).join('\n');
   try {
     const small = file ? await shrink(file) : null;
-    const out = await Store.sample.json(parts, { modelTier: 'quick', cache: false, ...(small ? { images: small } : {}) });
+    const out = await Promise.race([
+      Store.sample.json(parts, { modelTier: 'quick', cache: false, ...(small ? { images: small } : {}) }),
+      new Promise((_, no) => setTimeout(() => no(new Error('timeout')), AI_WAIT_MS))
+    ]);
     return { verdict: out?.verdict === 'accept' ? 'accept' : 'reject', reason: String(out?.reason || '').slice(0, 200) };
   } catch (e) {
-    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(e?.code)) { aiOff = true; return { verdict: 'none' }; }
-    if (e?.code === 'rate_limited') return { verdict: 'none' };
-    return { verdict: 'error', reason: 'The proof check did not finish. Try again.' };
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'images_unavailable'].includes(e?.code)) aiOff = true;
+    // A busy free AI must not cost the player: their proof counts as Submitted instead.
+    return { verdict: 'none' };
   }
 }
 
@@ -496,9 +601,34 @@ function viewToday() {
     ${dailies.length ? `<div>${dailies.map(questRow).join('')}</div>` : `<p class="dim" style="text-align:center">No quests are scheduled today. Add one in the Quests tab.</p>`}
     ${e?.rest ? `<p class="sys-line">[Rest day declared. Your streak is safe today.]</p>` : reqs.length && cleared < reqs.length ? `<p class="warning"><b>WARNING:</b> Miss a required quest (${cleared}/${reqs.length} done) and you lose your streak and enter the Penalty Zone at midnight.</p><button class="btn quiet" data-act="rest">Declare a rest day</button>` : reqs.length ? `<p class="sys-line">[All required quests are complete. Well done, Player.]</p>` : ''}
   </section>`;
+  html += ordersWindow();
   if (S.special) html += specialWindow(S.special);
   if (sides.length) html += `<section class="win"><h2 class="win-title"><i>+</i>Side Quests</h2><div>${sides.map(questRow).join('')}</div></section>`;
   return html;
+}
+function ordersWindow() {
+  const m = S.mind; const done = peek(ymd())?.c || {};
+  const adjust = m.adjust && S.quests.some(q => q.id === m.adjust.questId) ? m.adjust : null;
+  const orders = m.ordersOn === ymd() ? m.orders : [];
+  if (!orders.length && !adjust && m.goals.length) return '';
+  return `<section class="win"><h2 class="win-title"><i>!</i>Daily Orders</h2>
+    ${orders.length ? `<p class="lead">[The System has chosen for you. Orders are optional and never cost your streak.]</p>
+    <div>${orders.map(o => `${questRow(o)}<p class="small dim">${esc(o.why)}</p>${done[o.id] || S.timer?.key === o.id ? '' : `<button class="btn quiet tiny" data-act="ord-swap" data-id="${esc(o.id)}" ${swapsLeft() ? '' : 'disabled'}>Swap (${swapsLeft()} left this week)</button>`}`).join('')}</div>` : ''}
+    ${adjust ? `<hr class="rule"><p class="sys-line">${esc(adjust.text)}</p><div class="two"><button class="btn primary" data-act="adj-yes">Change it</button><button class="btn quiet" data-act="adj-no">Keep it</button></div>` : ''}
+    ${m.goals.length ? '' : `<p class="small dim">The System is guessing until you tell it what you want.</p><button class="btn" data-act="tab" data-id="quests">Tell the System your goals</button>`}
+  </section>`;
+}
+function mindWindow() {
+  const m = S.mind;
+  return `<section class="win"><h2 class="win-title"><i>✦</i>Tell the System</h2>
+      <p class="small dim">The System uses this to choose your Daily Orders. Change it whenever your life changes.</p>
+      <label class="field">Your goals, one per line<textarea id="mind-goals" maxlength="1500" placeholder="Get stronger&#10;Finish my portfolio by December">${esc(m.goals.join('\n'))}</textarea></label>
+      <label class="field">What usually gets in your way?<input type="text" id="mind-obstacles" maxlength="300" value="${esc(m.obstacles)}" placeholder="I scroll my phone at night"></label>
+      <label class="field">Minutes a day you can give to Orders<input type="number" id="mind-minutes" min="5" max="240" inputmode="numeric" value="${esc(m.minutes)}"></label>
+      ${Store.planner ? `<div class="pick"><label style="width:100%"><input type="checkbox" id="mind-ai" ${m.aiOk === true ? 'checked' : ''}><span style="width:100%">Let AI write my Orders</span></label></div>
+      <p class="small dim">If you tick this, your goals, obstacles, life areas, quest titles and completion rates go to Google's Gemini once a day, and Google may use them to improve its products. Your name, email and body data are never sent for this, and proof is only sent when you submit it. Leave it unticked and the app's built-in rules choose your Orders on your device.</p>` : ''}
+      <button class="btn primary" data-act="mind-save">Save</button>
+    </section>`;
 }
 function specialWindow(q) {
   const gold = DIFF_XP[q.rank] / 2 * 3;
@@ -758,8 +888,8 @@ function viewProof() {
 function viewQuests() {
   const sorted = [...S.quests].filter(q => !q.doneOn).sort((a, b) => (a.kind > b.kind ? 1 : -1));
   const dayNames = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-  return `${accountWindows()}<section class="win"><h2 class="win-title"><i>✦</i>Ask the System</h2>
-      <p class="small dim">Describe a goal in your own words and the System drafts quests with proof requirements. You approve each one. ${Store.sample && !aiOff ? 'AI writes them when it can, and the built-in planner takes over when it cannot.' : 'The built-in planner is writing them right now.'}</p>
+  return `${accountWindows()}${mindWindow()}<section class="win"><h2 class="win-title"><i>✦</i>Ask the System</h2>
+      <p class="small dim">Describe a goal in your own words and the System drafts quests with proof requirements. You approve each one. ${Store.sample && !aiOff ? 'AI writes them when it can, and the built-in planner takes over when it cannot. Your goal text goes to Google\'s Gemini, and Google may use it to improve its products.' : 'The built-in planner is writing them right now.'}</p>
       <label class="field">Your goal<textarea id="goal-text" placeholder="I want to stop doomscrolling at night and finish my portfolio site by December."></textarea></label><button class="btn primary" data-act="draft">Draft quests</button>
     </section>
     <section class="win"><div class="row between"><h2 class="win-title"><i>Q</i>Quests</h2><button class="btn" data-act="q-new">Add quest</button></div>
@@ -797,7 +927,7 @@ function drainNotes() {
 /* ---------- Proof flow ---------- */
 const fmtClock = ms => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; };
 function penaltyQuest() { return { id: 'penalty', title: 'Penalty quest', rank: 'E', statId: S.stats[0]?.id, kind: 'penalty', proof: { type: 'timer', minutes: S.penalty.minutes, needNote: true } }; }
-function findQuest(id) { if (id === 'penalty') return penaltyQuest(); if (id.startsWith('trial-')) return trial(); if (id.startsWith('special-')) return S.special; return S.quests.find(q => q.id === id); }
+function findQuest(id) { if (id === 'penalty') return penaltyQuest(); if (id.startsWith('trial-')) return trial(); if (id.startsWith('special-')) return S.special; if (id.startsWith('directive-')) return S.mind.orders.find(q => q.id === id); return S.quests.find(q => q.id === id); }
 
 function openProof(q) {
   if (q.proof.type === 'workout') { tab = 'train'; render(); window.scrollTo(0, 0); toast('[Finish a workout here and this quest completes itself.]', 4000); return; }
@@ -863,8 +993,7 @@ async function sendProof() {
   if (!PF) return;
   if (res.verdict === 'accept') { await complete(q, 'verified', PF.pending.proof, res.reason); return; }
   if (res.verdict === 'none') { await complete(q, 'filed', PF.pending.proof); return; }
-  const title = res.verdict === 'error' ? 'Proof check failed' : 'Proof rejected';
-  openModal(`<h2 class="win-title"><i>!</i>${title}</h2><p class="sys-line">[${esc(res.reason || 'This does not show the quest.')}]</p>
+  openModal(`<h2 class="win-title"><i>!</i>Proof rejected</h2><p class="sys-line">[${esc(res.reason || 'This does not show the quest.')}]</p>
     <div class="two"><button class="btn primary" data-act="pf-retry">Submit different proof</button>${isTrial ? '' : `<button class="btn quiet" data-act="pf-force">Count it anyway (50% XP)</button>`}</div>${isTrial ? '<button class="btn quiet" data-act="close">Leave the trial</button>' : ''}`, 'danger');
 }
 
@@ -958,6 +1087,7 @@ function showDrafts(drafts, note) {
 async function draftQuests() {
   const goal = $('#goal-text')?.value.trim();
   if (!goal) { toast('[Describe your goal first.]'); return; }
+  rememberGoal(goal);
   if (!Store.sample || aiOff) {
     const drafts = localDraft(goal);
     if (drafts.length) showDrafts(drafts, 'Drafted by the built-in planner. Edit any quest afterward from the Quests list.');
@@ -1034,7 +1164,7 @@ function finishOnboard() {
     return normQuest({ ...STARTERS[a][Number(i)], statId: stats.find(s => s.abbr === a)?.id, kind: 'daily' }, stats);
   });
   S = normalizeState(newState(onboard.name, stats, quests));
-  S.lastOfferOn = ymd(); S.lastRollOn = ymd();
+  S.lastOfferOn = ymd(); S.lastRollOn = ymd(); S.mind.ordersOn = ymd();
   saveState();
   tab = 'today';
   pendingNotes.push({ title: 'Quest info', lines: ['[Daily Quest has arrived.]', 'Complete it before midnight. Failure brings a penalty.'] });
@@ -1091,6 +1221,27 @@ const actions = {
     const t = trial(); t.title = title; t.statId = $('#te-stat').value;
     t.proof = { type: $('#te-type').value, prompt: $('#te-prompt').value.trim() };
     saveState(); closeModal(); render();
+  },
+  'ord-swap': swapOrder,
+  'adj-yes': () => {
+    const m = S.mind; const q = S.quests.find(x => x.id === m.adjust?.questId);
+    if (q) {
+      const { proof, ...rest } = m.adjust.change;
+      Object.assign(q, rest, proof ? { proof: { ...q.proof, ...proof } } : {});
+      m.adjustSeen[q.id] = ymd();
+    }
+    m.adjust = null; saveState(); render(); toast('[Quest changed.]');
+  },
+  'adj-no': () => { const m = S.mind; if (m.adjust) m.adjustSeen[m.adjust.questId] = ymd(); m.adjust = null; saveState(); render(); toast('[Your quest stays as it is.]'); },
+  'mind-save': () => {
+    const m = S.mind;
+    m.goals = $('#mind-goals').value.split('\n').map(g => g.trim().slice(0, 300)).filter(Boolean).slice(0, 5);
+    m.obstacles = $('#mind-obstacles').value.trim().slice(0, 300);
+    m.minutes = num($('#mind-minutes').value, 5, 240, 30);
+    const box = $('#mind-ai');
+    if (box) m.aiOk = box.checked;
+    saveState(); render(); toast('[The System will remember this.]');
+    thinkWithAi();
   },
   draft: draftQuests,
   'dq-add': () => {

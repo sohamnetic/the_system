@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
     if (p.last_morning_on !== now.date && isDue(now.minutes, p.morning)) {
       update.last_morning_on = now.date;
       const special = offersSpecial(summary, now.date) ? " A Special Quest is also available today." : "";
-      msg = { title: "QUEST INFO", body: `[Daily Quest has arrived.] Complete it before midnight.${special}`, tag: "morning", url: "/#today" };
+      msg = { title: "QUEST INFO", body: `[Daily Quest has arrived.] Complete it before midnight. Your Orders are waiting.${special}`, tag: "morning", url: "/#today" };
     } else {
       const left = known ? Number(summary?.left || 0) : null;
       const finished = known && (left === 0 || summary?.rest === true);

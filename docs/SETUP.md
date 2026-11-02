@@ -102,11 +102,13 @@ Without this, people who sign up with a password can't recover a forgotten passw
 3. Turn **Confirm email** back on if you want it.
 4. Set `emailEnabled: true` in `public/config.js`, then publish again.
 
-## 7. AI proof checks (optional)
+## 7. AI (optional)
 
-**Without this, the app still works, but nothing looks at the proof.** New photos and write-ups count as Submitted at 80% XP, and the built-in planner drafts quests.
+**Without this, the app still works.** Built-in rules choose Daily Orders, nothing looks at the proof, and new photos and write-ups count as Submitted at 80% XP.
 
-Before you turn it on: on Google's free tier, what people send can be used to improve Google's products, and that includes proof photos. The app tells people this each time, but do not enable it if that isn't acceptable to you and your users.
+On Google's free tier, what people send can be used to improve Google's products. Do not enable anything here if that isn't acceptable to you and your users.
+
+**AI-written Daily Orders (text only):**
 
 1. Create a free key at https://aistudio.google.com. Do not turn on billing for that project.
 2. Save the key and publish the function:
@@ -119,7 +121,11 @@ npx supabase secrets set GEMINI_API_KEY=YOUR_KEY
 npx supabase functions deploy ai
 ```
 
-3. Set `aiEnabled: true` in `public/config.js`, then publish again.
+3. Set `plannerAi: true` in `public/config.js`, then publish again. Each person must still opt in under **Tell the System** in the Quests tab. Their goals, obstacles, life areas, quest titles and completion rates are sent once a day. Names, emails, photos, write-ups and body data are not.
+
+**AI proof checks (sends photos to Google):**
+
+Set the `AI_ALLOW_IMAGES` secret to `true`, then set `aiEnabled: true` in `public/config.js` and publish again. The function refuses every image until that secret is set. The app tells people each time a photo will be sent.
 
 Each person gets 10 AI calls a day. Change that with the `AI_DAILY_LIMIT` secret. When the free quota runs out, proof counts as Submitted until it resets, so nobody gets stuck.
 
