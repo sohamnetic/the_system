@@ -5,7 +5,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-flash-latest";
 const FALLBACK_MODEL = Deno.env.get("GEMINI_FALLBACK_MODEL") || "gemini-flash-lite-latest";
-const MODEL_WAIT_MS = 20_000;
+const MODEL_WAIT_MS = 28_000;
+const FALLBACK_WAIT_MS = 15_000;
 const DAILY_LIMIT = Number(Deno.env.get("AI_DAILY_LIMIT") || 10);
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_PROMPT = 12_000;
@@ -52,21 +53,22 @@ Deno.serve(async (req) => {
   parts.push({ text: prompt });
 
   try {
-    const ask = (model: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    const ask = (model: string, waitMs: number, extra: Record<string, unknown>) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
-      signal: AbortSignal.timeout(MODEL_WAIT_MS),
+      signal: AbortSignal.timeout(waitMs),
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: "user", parts }],
-        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4000, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 4000, ...extra },
       }),
     });
     // The free tier often answers "high demand" or stalls, so a smaller model gets the second try.
-    let res = await ask(MODEL).catch(() => null);
+    // The smaller model refuses the thinking setting, so only the main model gets it.
+    let res = await ask(MODEL, MODEL_WAIT_MS, { thinkingConfig: { thinkingBudget: 0 } }).catch(() => null);
     if (!res || res.status === 500 || res.status === 503) {
       if (res) console.error("Gemini busy", res.status);
-      res = await ask(FALLBACK_MODEL);
+      res = await ask(FALLBACK_MODEL, FALLBACK_WAIT_MS, {});
     }
     // A used-up free quota comes back as 429, which the app treats as "no AI right now".
     if (res.status === 429) return reply(429, { error: "The free AI quota is used up for now." });
