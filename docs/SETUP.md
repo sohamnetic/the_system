@@ -75,6 +75,7 @@ create extension if not exists pg_net;
 select cron.schedule('system-reminders', '*/15 * * * *', $$
   select net.http_post(
     url := 'https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-reminders',
+    timeout_milliseconds := 30000,
     headers := jsonb_build_object('x-cron-secret', 'YOUR_LONG_RANDOM_SECRET')
   )
 $$);

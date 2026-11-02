@@ -67,20 +67,24 @@ Deno.serve(async (req) => {
       }
     }
     if (!Object.keys(update).length) continue;
-    await db.from("notification_prefs").update(update).eq("user_id", p.user_id);
-    if (!msg) continue;
-
-    const { data: subs } = await db.from("push_subscriptions").select("*").eq("user_id", p.user_id);
-    for (const s of subs ?? []) {
-      try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(msg));
-        sent++;
-      } catch (e) {
-        const status = (e as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
-        else console.error("Push failed", status);
+    // Marked done only after sending, so a run that gets cut off or a push service hiccup is retried by the next run.
+    let delivered = 0, retry = false;
+    if (msg) {
+      const { data: subs, error: subsError } = await db.from("push_subscriptions").select("*").eq("user_id", p.user_id);
+      if (subsError) { console.error(subsError); retry = true; }
+      for (const s of subs ?? []) {
+        try {
+          await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify(msg));
+          delivered++;
+        } catch (e) {
+          const status = (e as { statusCode?: number }).statusCode;
+          if (status === 404 || status === 410) await db.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
+          else { console.error("Push failed", status); retry = true; }
+        }
       }
     }
+    sent += delivered;
+    if (!retry || delivered) await db.from("notification_prefs").update(update).eq("user_id", p.user_id);
   }
   // Keeps photos inside the free storage allowance.
   const { data: expired } = await db.rpc("expired_proofs", { keep_days: PHOTO_KEEP_DAYS, max_rows: 200 });
